@@ -4,11 +4,10 @@ import f110_gym
 from f110_sim_env.code.wrappers import F110_Wrapped, ThrottleMaxSpeedReward, FixSpeedControl, RandomStartPosition, FrameSkip
 from f110_sim_env.code.wrappers import MaxLaps, FlattenAction,SpinningReset,ProgressObservation, LidarOccupancyObservation, VelocityObservationSpace
 from f110_sim_env.code.wrappers import DownsampleLaserObservation, PoseStartPosition
-from stable_baselines3.common.env_checker import check_env
-from single_agent_env import ActionDictWrapper
+# from stable_baselines3.common.env_checker import check_env
 from f110_sim_env.code.wrappers import ProgressReward
 import numpy as np
-from stable_baselines3.common import logger
+# from stable_baselines3.common import logger
 # from f110_gym.envs.base_classes import Integrator
 # from stable_baselines3.common.logger import Logger, get_logger
 
@@ -18,6 +17,9 @@ from gymnasium.wrappers import RescaleAction
 from gymnasium.wrappers import ClipAction
 from f110_orl_dataset.reward import MixedReward
 from gymnasium.wrappers import TimeLimit
+
+from f110_orl_dataset.config_new import Config as RewardConfig
+from f110_orl_dataset.fast_reward import StepMixedReward
 
 class RescaleAction2(gym.ActionWrapper, gym.utils.RecordConstructorArgs):
     """Affinely rescales the continuous action space of the environment to the range [min_action, max_action].
@@ -206,36 +208,38 @@ class AugmentObservationsPreviousAction(gym.Wrapper):
         obs['previous_action'] = self.previous_action
         return obs, info
 
-
+from f110_orl_dataset.normalize_dataset import Normalize
 class MixedGymReward(gym.Wrapper):
-    def __init__(self, env, **reward_config):
+    def __init__(self, env, reward_config):
         # add checks if in vectorized env??
         super().__init__(env)
         # super(MixedGymReward, self).__init__(env)
-        self.reward = MixedReward(env, env.track, **reward_config)
+        self.reward = StepMixedReward(env, reward_config)
         self.all_rewards = []
+        self.normalizer = Normalize()
+
     def step(self, action):
         observation, reward, done, truncated, info = self.env.step(action)
-        reward, rewards = self.reward(observation, action, 
-                                      observation['collisions'][0], done)
-        # print(reward)
-        # do it with logging frequency
-        #logger_instance = get_logger()
-        #logger.record("reward", reward)
-        #logger.record("reward_TD", rewards[0])
-        self.all_rewards = rewards
-        # add final reward to self.all_rewards, which is a dict
-        self.all_rewards["final_reward"] = reward
+        #print(observation)
+        # we have to convert the observation to a batch
+        flattened = self.normalizer.flatten_batch(observation)
+        #print(flattened)
+        #exit()
+        reward = self.reward(flattened, action, 
+                             np.array([observation['collisions'][0]],dtype=np.bool), np.array([done], dtype=np.bool), laser_scan=None)
+        #self.all_rewards = rewards # rewards has been deprecated, previously tracked every reward
+        reward = reward[0]
+        self.all_rewards = dict()
+        self.all_rewards["final_reward"] = reward#[0]# [0]
         info["rewards"] = self.all_rewards
         info["collision"] = observation['collisions'][0]
-        # print("reward",reward)
         return observation, reward, done, truncated, info
     
     def reset(self, seed=None, options=None):
         observation, info = self.env.reset(seed=seed, options=options)
         pose = (observation['poses_x'][0], observation['poses_y'][0])
         # print(pose)
-        self.reward.reset(pose, options["velocity"])
+        self.reward.reset() #pose, options["velocity"]), giving this has been deprecated
         return observation, info
 
 class AppendObservationToInfo(gym.Wrapper):
@@ -349,9 +353,9 @@ class NormalizePreviousAction(gym.ObservationWrapper):
     def observation(self, obs):
         low = self.env.action_space.low
         high = self.env.action_space.high
-        print("----")
-        print(low)
-        print(high)
+        #print("----")
+        #print(low)
+        #print(high)
         # print(high)
         #print(low, high)
         #print("obs", obs["previous_action"])
@@ -542,7 +546,7 @@ def make_base_env(map= "Infsaal", fixed_speed=None,
     env = FrameSkip(env, skip=5)
     env = DownsampleLaserObservation(env, subsample=SUBSAMPLE)
     
-    env = MixedGymReward(env, **reward_config)
+    
     # print(env.action_space)
     env = AppendActionToInfo(env, name="action_raw")
     env = AugmentObservationsPreviousAction(env, inital_velocity=2.0)
@@ -556,7 +560,7 @@ def make_base_env(map= "Infsaal", fixed_speed=None,
     # add and filter observations
     env = ProgressObservation(env)
     env = ThetaObservationContinous(env)
-    
+    env = MixedGymReward(env, reward_config)
     env = gym.wrappers.FilterObservation(env, filter_keys=["lidar_occupancy","linear_vels_x", 
                                                            "linear_vels_y", "ang_vels_z", "previous_action", # ])
                                                            "poses_x", "poses_y", 
@@ -595,12 +599,14 @@ def make_base_env(map= "Infsaal", fixed_speed=None,
     #print(env.observation_space)
     return env
 
-from stable_baselines3 import PPO
+#
 from functools import partial
-from stable_baselines3.common.env_util import make_vec_env
-from stable_baselines3.common.vec_env import SubprocVecEnv
 
 if __name__ == "__main__":
+    from stable_baselines3 import PPO
+    from stable_baselines3.common.env_util import make_vec_env
+    from stable_baselines3.common.vec_env import SubprocVecEnv
+
     print("Starting test ...")
     #env = make_base_env(fixed_speed=None)
     #check_env(env, warn=True, skip_render_check=False)
