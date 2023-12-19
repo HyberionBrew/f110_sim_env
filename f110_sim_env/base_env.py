@@ -193,8 +193,9 @@ class AugmentObservationsPreviousAction(gym.Wrapper):
         obs['previous_action'] = self.previous_action
         #print("previous action")
         #print(self.previous_action)
+        print("action dw", action)
         self.previous_action = action
-        
+        print("previous", self.previous_action)
         return obs, reward, done, truncated, info
     
     def reset(self, seed = None, options=None):
@@ -383,7 +384,6 @@ class RandomResetVelocity(gym.Wrapper):
             options['velocity'] = random_velocity
         if self.eval:
             options['velocity'] = 0.0
-
         return super().reset(seed=seed, options=options)
 
 import warnings
@@ -422,6 +422,7 @@ class AccelerationAndDeltaSteeringWrapper(gym.ActionWrapper):
 
         self.current_velocity = options["velocity"]
         self.current_steering = 0.0
+
         return super().reset( seed=None, options=options)
 
     def action(self, action):
@@ -441,6 +442,8 @@ class AccelerationAndDeltaSteeringWrapper(gym.ActionWrapper):
         # print(self.current_steering)
         # print(self.current_velocity)
         # Return the transformed action (absolute values)
+        #print(self.min_velocity)
+        print("current, vel", self.current_velocity)
         return np.asarray([[self.current_steering, self.current_velocity]])
 
 from f110_orl_dataset import normalize_dataset
@@ -512,7 +515,7 @@ def make_base_env(map= "Infsaal", fixed_speed=None,
     env = gym.make("f110_gym:f110-v0",
                     config = dict(map=map,
                     num_agents=1, 
-                    params=dict(vmin=0.5, vmax=2.0)),
+                    params=dict(vmin=min_vel, vmax=max_vel)),
                     render_mode="human")
 
     # Random start wrapper
@@ -531,7 +534,7 @@ def make_base_env(map= "Infsaal", fixed_speed=None,
 
     # Clip the velocity
     # env = ReduceSpeedActionSpace(env, 0.5, 1.8)
-    env = ReduceSpeedActionSpace(env, MIN_VEL, MAX_VEL)
+    env = ReduceSpeedActionSpace(env, 0.0, MAX_VEL)
     env = ClipAction(env)
 
     # restart if start spinning
@@ -549,7 +552,7 @@ def make_base_env(map= "Infsaal", fixed_speed=None,
     
     # print(env.action_space)
     env = AppendActionToInfo(env, name="action_raw")
-    env = AugmentObservationsPreviousAction(env, inital_velocity=2.0)
+    env = AugmentObservationsPreviousAction(env, inital_velocity=min_vel)
     
     # convert to delta steering and acceleration
 
@@ -587,7 +590,7 @@ def make_base_env(map= "Infsaal", fixed_speed=None,
     env = AccelerationAndDeltaSteeringWrapper(env, max_acceleration=max_acceleration, max_delta_steering=max_delta_steering,
                                             min_velocity=env.action_space.low[0][1], max_velocity=env.action_space.high[0][1],
                                             min_steering=env.action_space.low[0][0], max_steering=env.action_space.high[0][0],
-                                            inital_velocity=2.0)
+                                            inital_velocity=min_vel)
     env = AppendActionToInfo(env, name="action_delta")
     env = RescaleAction2(env, min_action=-1.0,max_action=1.0)
     
