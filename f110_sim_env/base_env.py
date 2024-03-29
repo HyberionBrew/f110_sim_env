@@ -191,11 +191,7 @@ class AugmentObservationsPreviousAction(gym.Wrapper):
     def step(self, action):
         obs, reward, done, truncated, info = self.env.step(action)
         obs['previous_action'] = self.previous_action
-        #print("previous action")
-        #print(self.previous_action)
-        print("action dw", action)
         self.previous_action = action
-        print("previous", self.previous_action)
         return obs, reward, done, truncated, info
     
     def reset(self, seed = None, options=None):
@@ -438,12 +434,6 @@ class AccelerationAndDeltaSteeringWrapper(gym.ActionWrapper):
         self.current_velocity = np.clip(self.current_velocity, self.min_velocity, self.max_velocity)
         self.current_steering = np.clip(self.current_steering, self.min_steering, self.max_steering)
         #print(self.current_steering)
-        #print(self.current_velocity)
-        # print(self.current_steering)
-        # print(self.current_velocity)
-        # Return the transformed action (absolute values)
-        #print(self.min_velocity)
-        print("current, vel", self.current_velocity)
         return np.asarray([[self.current_steering, self.current_velocity]])
 
 from f110_orl_dataset import normalize_dataset
